@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Chess Bot \u0026 Analyzer",
+  "description": "An interactive chess platform featuring competitive AI bots of varying difficulty levels, instant tactical feedback, and a Gemini-powered post-game mistake analysis tool.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
