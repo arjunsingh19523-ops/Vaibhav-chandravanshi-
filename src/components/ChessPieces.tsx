@@ -5,6 +5,19 @@
 
 import React from 'react';
 
+export const getPieceThemeFilter = (themeStr: string) => {
+  if (!themeStr || themeStr === 'classic') return 'none';
+  let filter = 'sepia(1) saturate(6) hue-rotate(';
+  if (themeStr === 'red') filter += '320deg)';
+  else if (themeStr === 'blue') filter += '200deg)';
+  else if (themeStr === 'green') filter += '90deg)';
+  else if (themeStr === 'cyan') filter += '160deg)';
+  else if (themeStr === 'purple') filter += '260deg)';
+  else if (themeStr === 'gold') filter += '40deg)';
+  else return 'none';
+  return filter;
+};
+
 interface PieceProps {
   className?: string;
 }

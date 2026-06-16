@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ChessPieces } from './ChessPieces.tsx';
+import { ChessPieces, getPieceThemeFilter } from './ChessPieces.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { BoardTheme } from '../types.ts';
 
@@ -16,6 +16,9 @@ interface ChessBoardProps {
   kingInCheckSquare: string | null;
   orientation: 'white' | 'black';
   theme: BoardTheme;
+  whitePieceTheme?: string;
+  blackPieceTheme?: string;
+  variant?: string;
   isInteractive: boolean;
 }
 
@@ -57,6 +60,9 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
   kingInCheckSquare,
   orientation,
   theme,
+  whitePieceTheme = 'classic',
+  blackPieceTheme = 'classic',
+  variant = 'standard',
   isInteractive,
 }) => {
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
@@ -216,10 +222,11 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
         return;
       }
 
-      const legal = legalMoves.find(m => m.from === selectedSquare && m.to === square);
+      const legals = legalMoves.filter(m => m.from === selectedSquare && m.to === square);
       
-      if (legal) {
-        triggerMove(selectedSquare, square, legal.promotion);
+      if (legals.length > 0) {
+        const isPromo = legals.some(m => m.promotion);
+        triggerMove(selectedSquare, square, isPromo ? undefined : legals[0].promotion);
       } else {
         const isWhitePiece = piece.startsWith('w');
         const isCurrentTurnWhite = fen.split(' ')[1] === 'w';
@@ -281,9 +288,10 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
     e.preventDefault();
     if (!draggedSquare || !isInteractive) return;
 
-    const legal = legalMoves.find(m => m.from === draggedSquare && m.to === targetSquare);
-    if (legal) {
-      triggerMove(draggedSquare, targetSquare, legal.promotion);
+    const legals = legalMoves.filter(m => m.from === draggedSquare && m.to === targetSquare);
+    if (legals.length > 0) {
+      const isPromo = legals.some(m => m.promotion);
+      triggerMove(draggedSquare, targetSquare, isPromo ? undefined : legals[0].promotion);
     }
     setDraggedSquare(null);
   };
@@ -302,11 +310,13 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 z-50 bg-black/75 backdrop-blur-sm flex flex-col items-center justify-center p-4"
+            onClick={() => setPromotionPending(null)}
           >
             <motion.div 
               initial={{ scale: 0.9, y: 15 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.9, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
               className="bg-[#242436] rounded-2xl border border-white/10 p-6 flex flex-col items-center w-full max-w-xs text-center"
             >
               <h4 className="text-white font-semibold text-lg mb-4">Pawn Promotion</h4>
@@ -319,7 +329,9 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
                   { type: 'b', label: 'Bishop' },
                   { type: 'n', label: 'Knight' }
                 ].map((p) => {
-                  const pieceCode = `${fen.split(' ')[1] === 'w' ? 'w' : 'b'}${p.type}`;
+                  const isWhitePromo = fen.split(' ')[1] === 'w';
+                  const pieceCode = `${isWhitePromo ? 'w' : 'b'}${p.type}`;
+                  const themeToUse = isWhitePromo ? whitePieceTheme : blackPieceTheme;
                   const SvgPiece = ChessPieces[pieceCode];
                   return (
                     <button
@@ -328,7 +340,11 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
                       onClick={() => handlePromotionSelect(p.type)}
                       className="p-2 aspect-square rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 hover:border-white/20 flex flex-col items-center justify-center transition-all group"
                     >
-                      {SvgPiece && <SvgPiece className="w-10 h-10 group-hover:scale-110 transition-transform" />}
+                      {SvgPiece && (
+                        <div style={{ filter: themeToUse !== 'classic' ? getPieceThemeFilter(themeToUse) : undefined }}>
+                          <SvgPiece className="w-10 h-10 group-hover:scale-110 transition-transform" />
+                        </div>
+                      )}
                       <span className="text-[10px] text-gray-400 mt-1">{p.label}</span>
                     </button>
                   );
@@ -371,6 +387,11 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
                     ${isSelected ? 'ring-4 ring-amber-400 ring-inset bg-amber-400/20' : ''}
                   `}
                 >
+                  {/* Variant Special Overlays */}
+                  {variant === 'king_of_the_hill' && ['d4', 'd5', 'e4', 'e5'].includes(squareName) && (
+                     <div className="absolute inset-0 z-10 pointer-events-none ring-2 ring-inset ring-amber-400 bg-amber-400/10 opacity-75" />
+                  )}
+
                   {/* Legal Move Indicators */}
                   {isLegalTarget && (
                     <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none select-none">
@@ -437,6 +458,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
 
             const leftPercent = fileIdx * 12.5;
             const topPercent = rankIdx * 12.5;
+            const themeToUse = p.type.startsWith('w') ? whitePieceTheme : blackPieceTheme;
 
             return (
               <motion.div
@@ -460,6 +482,7 @@ export const ChessBoard: React.FC<ChessBoardProps> = ({
                   height: '12.5%',
                   left: `${leftPercent}%`,
                   top: `${topPercent}%`,
+                  filter: themeToUse !== 'classic' ? getPieceThemeFilter(themeToUse) : undefined
                 }}
                 className="flex items-center justify-center p-0.5 cursor-pointer pointer-events-auto select-none"
               >

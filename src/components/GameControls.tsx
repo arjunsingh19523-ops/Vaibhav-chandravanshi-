@@ -4,19 +4,25 @@
  */
 
 import React, { useState } from 'react';
-import { BotDifficulty, BotPersona, GameMode, BoardTheme, GameFormat } from '../types.ts';
+import { BotDifficulty, BotPersona, GameMode, BoardTheme, GameFormat, ChessVariant } from '../types.ts';
 import { BOT_PERSONAS } from '../utils/personas.ts';
-import { Undo, RefreshCw, Eye, Swords, ShieldCheck, Download, Upload, Copy, Check } from 'lucide-react';
+import { Undo, RefreshCw, Eye, Swords, ShieldCheck, Download, Upload, Copy, Check, Bluetooth } from 'lucide-react';
 
 interface GameControlsProps {
   activePersona: BotPersona;
   onPersonaChange: (bot: BotPersona) => void;
   gameFormat: GameFormat;
   onGameFormatChange: (format: GameFormat) => void;
+  chessVariant: ChessVariant;
+  onChessVariantChange: (variant: ChessVariant) => void;
   gameMode: GameMode;
   onGameModeChange: (mode: GameMode) => void;
   boardTheme: BoardTheme;
   onBoardThemeChange: (theme: BoardTheme) => void;
+  whitePieceTheme: string;
+  onWhitePieceThemeChange: (theme: string) => void;
+  blackPieceTheme: string;
+  onBlackPieceThemeChange: (theme: string) => void;
   playerColorSelection: 'white' | 'black';
   onPlayerColorChange: (color: 'white' | 'black') => void;
   onUndo: () => void;
@@ -34,10 +40,16 @@ export const GameControls: React.FC<GameControlsProps> = ({
   onPersonaChange,
   gameFormat,
   onGameFormatChange,
+  chessVariant,
+  onChessVariantChange,
   gameMode,
   onGameModeChange,
   boardTheme,
   onBoardThemeChange,
+  whitePieceTheme,
+  onWhitePieceThemeChange,
+  blackPieceTheme,
+  onBlackPieceThemeChange,
   playerColorSelection,
   onPlayerColorChange,
   onUndo,
@@ -87,7 +99,7 @@ export const GameControls: React.FC<GameControlsProps> = ({
           👥 Online PVP
         </button>
         <button
-          id="mode-analysis-btn"
+          id="mode-review-btn"
           onClick={() => onGameModeChange('analysis')}
           className={`flex-1 py-2 px-1.5 rounded-lg font-medium text-[11px] flex items-center justify-center gap-1.5 transition-all ${
             gameMode === 'analysis'
@@ -97,10 +109,32 @@ export const GameControls: React.FC<GameControlsProps> = ({
         >
           🔍 Review
         </button>
+        <button
+          id="mode-pass-and-play-btn"
+          onClick={() => onGameModeChange('pass_and_play')}
+          className={`flex-1 py-2 px-1.5 rounded-lg font-medium text-[11px] flex items-center justify-center gap-1.5 transition-all ${
+            gameMode === 'pass_and_play'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          🤝 Pass & Play
+        </button>
+        <button
+          id="mode-bluetooth-btn"
+          onClick={() => onGameModeChange('bluetooth')}
+          className={`flex-1 py-2 px-1.5 rounded-lg font-medium text-[11px] flex items-center justify-center gap-1.5 transition-all outline-none ${
+            gameMode === 'bluetooth'
+              ? 'bg-blue-600 text-white shadow-md'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <Bluetooth className="w-3.5 h-3.5" /> Bluetooth
+        </button>
       </div>
 
       {/* 2. Choose Opponent / Bot Difficulty Grid */}
-      {gameMode === 'play' && (
+      {(gameMode === 'play' || gameMode === 'pass_and_play') && (
         <div className="flex flex-col gap-3">
           {/* Game Format / Time Control Segment */}
           <div className="flex flex-col gap-1.5 bg-[#212134]/30 p-2.5 rounded-xl border border-white/5">
@@ -134,40 +168,74 @@ export const GameControls: React.FC<GameControlsProps> = ({
                 );
               })}
             </div>
+            
+            <label className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mt-1">
+              ♟ Chess Variant
+            </label>
+            <div className="grid grid-cols-4 gap-1 bg-[#212134] p-1 rounded-lg">
+              {([
+                { id: 'standard', label: 'Standard', desc: 'Classic rules' },
+                { id: 'king_of_the_hill', label: 'Hill Top', desc: 'King to center wins (d4/d5/e4/e5)' },
+                { id: '360_chess', label: '360 Chess', desc: 'Circular 360 board (Incoming)' },
+                { id: '4_player', label: '4 Player', desc: '4 Player mode (Incoming)' }
+              ] as const).map((v) => {
+                const isSelected = chessVariant === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    id={`variant-btn-${v.id}`}
+                    type="button"
+                    onClick={() => onChessVariantChange(v.id as ChessVariant)}
+                    title={v.desc}
+                    className={`py-1.5 px-1 rounded-md text-[8.5px] font-bold transition-all transition-duration-150 ${
+                      isSelected
+                        ? 'bg-pink-600 text-white shadow-md shadow-pink-500/20 font-extrabold'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <label className="text-[11px] uppercase tracking-wider font-bold text-gray-500">
-            Select Your opponent
-          </label>
-          <div className="grid grid-cols-2 gap-2 max-h-[175px] overflow-y-auto pr-0.5 scrollbar-thin">
-            {BOT_PERSONAS.map((bot) => {
-              const isSelected = bot.id === activePersona.id;
-              return (
-                <button
-                  key={bot.id}
-                  id={`bot-card-${bot.id}`}
-                  onClick={() => onPersonaChange(bot)}
-                  className={`flex flex-col text-left p-2.5 rounded-xl border transition-all relative overflow-hidden group shrink-0 ${
-                    isSelected
-                      ? 'bg-blue-600/10 border-blue-500/60 shadow-lg'
-                      : 'bg-[#212134]/50 border-white/5 hover:border-white/10 hover:bg-[#212134]'
-                  }`}
-                >
-                  {/* Miniature Avatar indicator */}
-                  <div className="flex items-center gap-1.5 mb-1 z-10">
-                    <div className={`w-5.5 h-5.5 rounded-full bg-gradient-to-tr ${bot.avatarGradient} flex items-center justify-center text-xs shadow-md`}>
-                      {bot.avatarEmoji}
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-white font-bold text-[11px] leading-none">{bot.name}</span>
-                      <span className="text-[9px] text-gray-400 font-mono mt-0.5 leading-none">{bot.rating} ELO</span>
-                    </div>
-                  </div>
-                  <p className="text-[9px] text-gray-400 leading-tight line-clamp-2 mt-0.5 z-10">{bot.description}</p>
-                </button>
-              );
-            })}
-          </div>
+          {gameMode === 'play' && (
+            <>
+              <label className="text-[11px] uppercase tracking-wider font-bold text-gray-500">
+                Select Your opponent
+              </label>
+              <div className="grid grid-cols-2 gap-2 max-h-[175px] overflow-y-auto pr-0.5 scrollbar-thin">
+                {BOT_PERSONAS.map((bot) => {
+                  const isSelected = bot.id === activePersona.id;
+                  return (
+                    <button
+                      key={bot.id}
+                      id={`bot-card-${bot.id}`}
+                      onClick={() => onPersonaChange(bot)}
+                      className={`flex flex-col text-left p-2.5 rounded-xl border transition-all relative overflow-hidden group shrink-0 ${
+                        isSelected
+                          ? 'bg-blue-600/10 border-blue-500/60 shadow-lg'
+                          : 'bg-[#212134]/50 border-white/5 hover:border-white/10 hover:bg-[#212134]'
+                      }`}
+                    >
+                      {/* Miniature Avatar indicator */}
+                      <div className="flex items-center gap-1.5 mb-1 z-10">
+                        <div className={`w-5.5 h-5.5 rounded-full bg-gradient-to-tr ${bot.avatarGradient} flex items-center justify-center text-xs shadow-md`}>
+                          {bot.avatarEmoji}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-white font-bold text-[11px] leading-none">{bot.name}</span>
+                          <span className="text-[9px] text-gray-400 font-mono mt-0.5 leading-none">{bot.rating} ELO</span>
+                        </div>
+                      </div>
+                      <p className="text-[9px] text-gray-400 leading-tight line-clamp-2 mt-0.5 z-10">{bot.description}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           {/* Quick orientation helper */}
           <div className="flex items-center justify-between bg-[#212134]/30 p-2.5 rounded-xl border border-white/5 mt-0.5">
@@ -215,6 +283,57 @@ export const GameControls: React.FC<GameControlsProps> = ({
               </button>
             );
           })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mt-2">
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-bold text-gray-500 mb-1.5 block">
+              White Piece Color
+            </label>
+            <div className="grid grid-cols-4 gap-1.5 bg-[#212134] p-1.5 rounded-xl">
+              {(['classic', 'red', 'blue', 'green', 'cyan', 'purple', 'gold'] as const).map((t) => {
+                const isSelected = whitePieceTheme === t;
+                return (
+                  <button
+                    key={t}
+                    id={`white-piecetheme-btn-${t}`}
+                    onClick={() => onWhitePieceThemeChange(t)}
+                    className={`py-1.5 px-2 rounded-lg text-[10px] font-bold capitalize transition-all ${
+                      isSelected
+                        ? 'bg-white text-black font-extrabold shadow'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-bold text-gray-500 mb-1.5 block">
+              Black Piece Color
+            </label>
+            <div className="grid grid-cols-4 gap-1.5 bg-[#212134] p-1.5 rounded-xl">
+              {(['classic', 'red', 'blue', 'green', 'cyan', 'purple', 'gold'] as const).map((t) => {
+                const isSelected = blackPieceTheme === t;
+                return (
+                  <button
+                    key={t}
+                    id={`black-piecetheme-btn-${t}`}
+                    onClick={() => onBlackPieceThemeChange(t)}
+                    className={`py-1.5 px-2 rounded-lg text-[10px] font-bold capitalize transition-all ${
+                      isSelected
+                        ? 'bg-white text-black font-extrabold shadow'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 

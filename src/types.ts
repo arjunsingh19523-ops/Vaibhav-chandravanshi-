@@ -5,6 +5,7 @@
 
 export type BotDifficulty = 'beginner' | 'intermediate' | 'master' | 'grandmaster';
 export type BoardTheme = 'classic' | 'cosmic' | 'wood' | 'dark';
+export type PieceTheme = 'classic' | 'red' | 'blue' | 'green' | 'cyan' | 'purple' | 'gold';
 export type GameFormat = 'bullet' | 'blitz' | 'rapid' | 'classical' | 'infinite';
 
 export interface BotPersona {
@@ -21,7 +22,8 @@ export interface BotPersona {
   systemInstruction: string;
 }
 
-export type GameMode = 'play' | 'multiplayer' | 'analysis';
+export type GameMode = 'play' | 'multiplayer' | 'analysis' | 'pass_and_play' | 'bluetooth';
+export type ChessVariant = 'standard' | 'king_of_the_hill' | '360_chess' | '4_player';
 
 export interface ChatMessage {
   id: string;

@@ -623,7 +623,7 @@ function parseResultMove(moveStr: string | null, legalMoves: any[]): { from: str
 /**
  * Calculates Captured Pieces & Material Difference
  */
-export function getCapturedCountAndDiff(fen: string): { captured: { w: string[]; b: string[] }; diff: number } {
+export function getCapturedCountAndDiff(fen: string): { captured: { w: string[]; b: string[] }; diff: number; score: number } {
   // Start pieces
   const startCount: { [key: string]: number } = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   
@@ -682,10 +682,41 @@ export function getCapturedCountAndDiff(fen: string): { captured: { w: string[];
   }
 
   return {
+    score: evaluateBoard(game), // Static evaluation of current position
     captured: {
       w: capturedW, // captured white pieces
       b: capturedB, // captured black pieces
     },
     diff: whiteVal - blackVal // positive means White leads, negative Black leads
   };
+}
+
+/**
+ * Analyzes the current FEN position and returns the evaluation score
+ * and best suggested move (for UI evaluation bars and hints).
+ */
+export function analyzePosition(fen: string, depth: number = 3): { score: number; bestMove: string | null } {
+  try {
+    const game = new Chess(fen);
+    if (game.isGameOver()) {
+      if (game.isCheckmate()) {
+        return { score: game.turn() === 'w' ? -99999 : 99999, bestMove: null };
+      }
+      return { score: 0, bestMove: null }; 
+    }
+    
+    // Evaluate the board
+    const isWhite = game.turn() === 'w';
+    const result = minimax(game, depth, -Infinity, Infinity, isWhite);
+    
+    // Reverse score for consistent representation (positive = white advantage)
+    let score = result.score;
+    // Scale down the score unit (the heuristic piece values are large, p=100)
+    // to map to standard chess evaluation units (1.0 = 1 pawn)
+    score = score / 100;
+    
+    return { score, bestMove: result.move };
+  } catch (err) {
+    return { score: 0, bestMove: null };
+  }
 }

@@ -4,18 +4,20 @@
  */
 
 import React from 'react';
-import { ChessPieces } from './ChessPieces.tsx';
+import { ChessPieces, getPieceThemeFilter } from './ChessPieces.tsx';
 
 interface CapturedPiecesProps {
   capturedList: string[]; // e.g. ['p', 'p', 'n', 'q']
   color: 'w' | 'b'; // 'w' means White pieces that have been captured (by Black), 'b' means Black pieces captured (by White)
   advantageDiff: number; // advantage from White perspective
+  pieceTheme?: string;
 }
 
 export const CapturedPieces: React.FC<CapturedPiecesProps> = ({
   capturedList,
   color,
   advantageDiff,
+  pieceTheme = 'classic',
 }) => {
   // Group pieces e.g. { p: 3, n: 1 }
   const counts: { [key: string]: number } = {};
@@ -49,7 +51,10 @@ export const CapturedPieces: React.FC<CapturedPiecesProps> = ({
             
             return (
               <div key={type} className="flex items-center bg-white/5 rounded px-1.5 py-0.5 border border-white/5">
-                <div className="w-5 h-5 flex items-center justify-center">
+                <div 
+                  className="w-5 h-5 flex items-center justify-center"
+                  style={{ filter: pieceTheme !== 'classic' ? getPieceThemeFilter(pieceTheme) : undefined }}
+                >
                   {SvgPiece && <SvgPiece className="w-full h-full" />}
                 </div>
                 {count > 1 && (

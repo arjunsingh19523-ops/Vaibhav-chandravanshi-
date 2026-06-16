@@ -5,16 +5,18 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Chess } from 'chess.js';
-import { BotDifficulty, BotPersona, GameMode, BoardTheme, MoveAnalysis, GameFormat } from './types.ts';
+import { BotDifficulty, BotPersona, GameMode, BoardTheme, MoveAnalysis, GameFormat, ChessVariant, PieceTheme } from './types.ts';
 import { getPersonaByDifficulty } from './utils/personas.ts';
-import { getBotMove, getCapturedCountAndDiff } from './utils/chessEngine.ts';
+import { getBotMove, getCapturedCountAndDiff, analyzePosition } from './utils/chessEngine.ts';
 import { ChessBoard } from './components/ChessBoard.tsx';
+import { EvalBar } from './components/EvalBar.tsx';
 import { OpponentCard } from './components/OpponentCard.tsx';
 import { GameControls } from './components/GameControls.tsx';
 import { CapturedPieces } from './components/CapturedPieces.tsx';
 import { AnalysisPanel } from './components/AnalysisPanel.tsx';
 import { MultiplayerControl } from './components/MultiplayerControl.tsx';
-import { Swords, Eye, Trophy, Calendar, Sparkles, HelpCircle, ShieldCheck, Volume2, VolumeX } from 'lucide-react';
+import { BluetoothConnectionPanel } from './components/BluetoothConnectionPanel.tsx';
+import { Swords, Eye, Trophy, Calendar, Sparkles, HelpCircle, ShieldCheck, Volume2, VolumeX, Maximize, Minimize, Bluetooth } from 'lucide-react';
 import { soundEffects } from './utils/soundEffects.ts';
 
 export default function App() {
@@ -30,14 +32,24 @@ export default function App() {
   // Game Configuration States
   const [gameMode, setGameMode] = useState<GameMode>('play');
   const [gameFormat, setGameFormat] = useState<GameFormat>('blitz');
+  const [chessVariant, setChessVariant] = useState<ChessVariant>('standard');
   const [difficulty, setDifficulty] = useState<BotDifficulty>('intermediate');
   const [boardTheme, setBoardTheme] = useState<BoardTheme>('cosmic');
+  const [whitePieceTheme, setWhitePieceTheme] = useState<PieceTheme>('classic');
+  const [blackPieceTheme, setBlackPieceTheme] = useState<PieceTheme>('classic');
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
 
   // Dual Chess Clocks states (in seconds)
   const [whiteTime, setWhiteTime] = useState<number>(180); // Default to 3 min (Blitz)
   const [blackTime, setBlackTime] = useState<number>(180);
+
+  // Player Rating States
+  const [userRating, setUserRating] = useState<number>(() => {
+    return parseInt(localStorage.getItem('chessUserRating') || '1200', 10);
+  });
+  const [ratingChange, setRatingChange] = useState<number | null>(null);
+  const scoredGameRef = useRef<boolean>(false);
 
   // Status Indicators
   const [kingInCheckSquare, setKingInCheckSquare] = useState<string | null>(null);
@@ -71,6 +83,8 @@ export default function App() {
   const [capturedW, setCapturedW] = useState<string[]>([]); // pieces originally White captured by Black/Bot
   const [capturedB, setCapturedB] = useState<string[]>([]); // pieces originally Black captured by White/User
   const [materialDiff, setMaterialDiff] = useState<number>(0);
+  const [evalScore, setEvalScore] = useState<number>(0);
+  const [bestMoveHint, setBestMoveHint] = useState<string | null>(null);
 
   // AI Bots + Commentary States
   const [activePersona, setActivePersona] = useState<BotPersona>(getPersonaByDifficulty('intermediate'));
@@ -102,6 +116,27 @@ export default function App() {
   const handleToggleMute = () => {
     const muted = soundEffects.toggleMute();
     setIsMuted(muted);
+  };
+
+  // Fullscreen State
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  const handleToggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable fullscreen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
   };
 
   // Post-Game Analysis Modes
@@ -149,7 +184,7 @@ export default function App() {
 
   // Clock Countdown logic ticking
   useEffect(() => {
-    if (gameMode !== 'play' || gameStatus !== 'active' || gameFormat === 'infinite') return;
+    if ((gameMode !== 'play' && gameMode !== 'pass_and_play') || gameStatus !== 'active' || gameFormat === 'infinite') return;
     if (moveHistory.length === 0) return; // Clocks tick down on the first move!
 
     const currentTurn = chessRef.current.turn(); // 'w' or 'b'
@@ -159,9 +194,11 @@ export default function App() {
         setWhiteTime((prev) => {
           if (prev <= 1) {
             clearInterval(interval);
-            setGameStatus('draw');
-            setLatestCommentary("Time's up! You ran out of time! Black wins on time. [MEME:BRUH]");
+            setGameStatus('checkmate');
+            setLatestCommentary(gameMode === 'pass_and_play' ? "Time's up! White ran out of time! Black wins on time. [MEME:BRUH]" : "Time's up! You ran out of time! Black wins on time. [MEME:BRUH]");
             soundEffects.playCheckmate();
+            const result = playerColor === 'white' ? 0 : 1;
+            updateUserRating(result as any);
             return 0;
           }
           return prev - 1;
@@ -171,8 +208,10 @@ export default function App() {
           if (prev <= 1) {
             clearInterval(interval);
             setGameStatus('checkmate');
-            setLatestCommentary(`Time's up! ${activePersona.name} ran out of time! You win on time! [MEME:NOICE]`);
+            setLatestCommentary(gameMode === 'pass_and_play' ? "Time's up! Black ran out of time! White wins on time. [MEME:NOICE]" : `Time's up! ${activePersona.name} ran out of time! You win on time! [MEME:NOICE]`);
             soundEffects.playCheckmate();
+            const result = playerColor === 'black' ? 0 : 1;
+            updateUserRating(result as any);
             return 0;
           }
           return prev - 1;
@@ -387,12 +426,33 @@ export default function App() {
           gradient: 'from-[#44475a]/45 to-[#282a36]/25 border border-[#8be9fd]/20 border-teal-500/10'
         };
       }
+    } else if (gameMode === 'pass_and_play') {
+      const opposingRole = boardOrientation === 'white' ? 'Black' : 'White';
+      const homeRole = boardOrientation === 'white' ? 'White' : 'Black';
+      if (role === 'far') {
+        return {
+          name: `Player 2 (${opposingRole})`,
+          emoji: opposingRole === 'White' ? '⚪' : '⚫',
+          subtitle: 'Local Pass & Play',
+          gradient: 'from-blue-600/10 to-blue-600/5 border border-blue-500/10',
+          isBot: false
+        };
+      } else {
+        return {
+          name: `Player 1 (${homeRole})`,
+          emoji: homeRole === 'White' ? '⚪' : '⚫',
+          subtitle: 'Local Pass & Play',
+          gradient: 'from-blue-600/30 to-blue-600/10 border border-blue-500/20',
+          isBot: false
+        };
+      }
     } else {
+      const userSubtitle = `Rating: ${userRating}${ratingChange !== null ? ` (${ratingChange > 0 ? '+' : ''}${ratingChange})` : ''}`;
       if (role === 'far') {
         return {
           name: boardOrientation === 'white' ? activePersona.name : 'You (Guest)',
           emoji: boardOrientation === 'white' ? activePersona.avatarEmoji : '👤',
-          subtitle: boardOrientation === 'white' ? `Rating: ${activePersona.rating}` : 'Rating: 1500?',
+          subtitle: boardOrientation === 'white' ? `Rating: ${activePersona.rating}` : userSubtitle,
           gradient: boardOrientation === 'white' ? activePersona.avatarGradient : 'from-blue-600/30 to-blue-600/10 border border-blue-500/20',
           isBot: boardOrientation === 'white'
         };
@@ -400,7 +460,7 @@ export default function App() {
         return {
           name: boardOrientation === 'white' ? 'You (Guest)' : activePersona.name,
           emoji: boardOrientation === 'white' ? '👤' : activePersona.avatarEmoji,
-          subtitle: boardOrientation === 'white' ? 'Rating: 1500?' : `Rating: ${activePersona.rating}`,
+          subtitle: boardOrientation === 'white' ? userSubtitle : `Rating: ${activePersona.rating}`,
           gradient: boardOrientation === 'white' ? 'from-blue-600/30 to-blue-600/10 border border-blue-500/20' : activePersona.avatarGradient,
           isBot: boardOrientation === 'black'
         };
@@ -415,12 +475,21 @@ export default function App() {
     }
   }, [playerColor, gameMode]);
 
-  // Sync captured pieces whenever FEN changes
+  // Sync captured pieces and live evaluation whenever FEN changes
   useEffect(() => {
     const data = getCapturedCountAndDiff(fen);
     setCapturedW(data.captured.w);
     setCapturedB(data.captured.b);
     setMaterialDiff(data.diff);
+
+    // Compute live evaluation asynchronously to avoid UI stutter
+    const timer = setTimeout(() => {
+      const evalData = analyzePosition(fen, 2); // fast depth 2 for live bar
+      setEvalScore(evalData.score);
+      setBestMoveHint(evalData.bestMove);
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [fen]);
 
   // Fetch bot commentary from server-side proxy
@@ -499,19 +568,72 @@ export default function App() {
     }
   };
 
+  // Rating Updater
+  const updateUserRating = (result: 0 | 0.5 | 1) => {
+    if (gameMode !== 'play') return; // Only rate against AI bots
+    if (scoredGameRef.current) return;
+    scoredGameRef.current = true;
+
+    let botElo = 1200;
+    if (difficulty === 'beginner') botElo = 600;
+    if (difficulty === 'intermediate') botElo = 1200;
+    if (difficulty === 'master') botElo = 1800;
+    if (difficulty === 'grandmaster') botElo = 2500;
+    
+    const expectedUser = 1 / (1 + Math.pow(10, (botElo - userRating) / 400));
+    const kFactor = 32;
+    const change = Math.round(kFactor * (result - expectedUser));
+    
+    const newRating = Math.max(100, userRating + change); // floor of 100
+    setUserRating(newRating);
+    setRatingChange(change);
+    localStorage.setItem('chessUserRating', newRating.toString());
+  };
+
   /**
    * Evaluates if game is ended and returns state checks
    */
   const updateCheckAndSafetyStatus = (gameInstance: Chess) => {
+    // Check variant win conditions
+    if (chessVariant === 'king_of_the_hill') {
+      const whiteKingSq = findKingSquare(gameInstance, 'w');
+      const blackKingSq = findKingSquare(gameInstance, 'b');
+      const hillSquares = ['d4', 'd5', 'e4', 'e5'];
+      
+      let hillWon = false;
+      if (whiteKingSq && hillSquares.includes(whiteKingSq)) {
+        setGameStatus('checkmate');
+        setKingInCheckSquare(null);
+        setLatestCommentary('White reaches the center! King of the hill! [MEME:LMAO]');
+        soundEffects.playCheckmate();
+        updateUserRating(playerColor === 'white' ? 1 : 0);
+        hillWon = true;
+      } else if (blackKingSq && hillSquares.includes(blackKingSq)) {
+        setGameStatus('checkmate');
+        setKingInCheckSquare(null);
+        setLatestCommentary('Black reaches the center! King of the hill! [MEME:LMAO]');
+        soundEffects.playCheckmate();
+        updateUserRating(playerColor === 'black' ? 1 : 0);
+        hillWon = true;
+      }
+      
+      if (hillWon) return;
+    }
+
     if (gameInstance.isCheckmate()) {
       setGameStatus('checkmate');
       setKingInCheckSquare(findKingSquare(gameInstance, gameInstance.turn()));
+      const turnOfLoser = gameInstance.turn();
+      const userWon = (turnOfLoser === 'w' && playerColor === 'black') || (turnOfLoser === 'b' && playerColor === 'white');
+      updateUserRating(userWon ? 1 : 0);
     } else if (gameInstance.isDraw() || gameInstance.isThreefoldRepetition() || gameInstance.isInsufficientMaterial()) {
       setGameStatus('draw');
       setKingInCheckSquare(null);
+      updateUserRating(0.5);
     } else if (gameInstance.isStalemate()) {
       setGameStatus('stalemate');
       setKingInCheckSquare(null);
+      updateUserRating(0.5);
     } else if (gameInstance.inCheck()) {
       setGameStatus('check');
       setKingInCheckSquare(findKingSquare(gameInstance, gameInstance.turn()));
@@ -597,9 +719,11 @@ export default function App() {
         // Update check indicators
         updateCheckAndSafetyStatus(chess);
 
-        // Fetch commentary reacting to User's move
-        const recentSanList = nextHistory.map(h => h.san);
-        fetchBotCommentary(nextFen, recentSanList);
+        // Fetch commentary reacting to User's move (not in pass and play)
+        if (gameMode !== 'pass_and_play') {
+          const recentSanList = nextHistory.map(h => h.san);
+          fetchBotCommentary(nextFen, recentSanList);
+        }
 
         return true;
       }
@@ -616,7 +740,7 @@ export default function App() {
 
     const chess = chessRef.current;
     const turn = chess.turn();
-    const isBotTurn = (playerColor === 'white' && turn === 'b') || (playerColor === 'black' && turn === 'w');
+    const isBotTurn = gameMode !== 'pass_and_play' && ((playerColor === 'white' && turn === 'b') || (playerColor === 'black' && turn === 'w'));
 
     if (isBotTurn && !isBotThinking) {
       setIsBotThinking(true);
@@ -674,7 +798,7 @@ export default function App() {
 
       return () => clearTimeout(timer);
     }
-  }, [fen, gameMode, playerColor, gameStatus, difficulty]);
+  }, [fen, gameMode, playerColor, gameStatus, difficulty, chessVariant]);
 
   // Jump to specific historic move during Game Review/Analysis
   const handleJumpToMove = (idx: number) => {
@@ -754,6 +878,8 @@ export default function App() {
     setCoachSummary(null);
     setAnalyzedMoves([]);
     setLatestCommentary(activePersona.greeting);
+    scoredGameRef.current = false;
+    setRatingChange(null);
     
     // Reset dual clocks
     const initialSecs = getInitialSeconds(gameFormat);
@@ -868,6 +994,18 @@ export default function App() {
           
           <div className="flex items-center gap-3">
             <button
+              onClick={handleToggleFullscreen}
+              className="p-2 rounded-xl border bg-[#212134] border-white/5 text-gray-300 hover:bg-[#2b2b42] transition-all duration-200 flex items-center justify-center"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? (
+                <Minimize className="w-4 h-4" />
+              ) : (
+                <Maximize className="w-4 h-4" />
+              )}
+            </button>
+
+            <button
               id="sound-mute-toggle"
               onClick={handleToggleMute}
               className={`p-2 rounded-xl border transition-all duration-200 flex items-center gap-2 text-xs font-bold ${
@@ -944,7 +1082,32 @@ export default function App() {
             </div>
 
             {/* Simulated Frame status info */}
-            <div className="relative shadow-2xl rounded-2xl overflow-hidden w-full max-w-lg">
+            <div className="flex flex-row items-stretch gap-2 w-full max-w-[530px]">
+              {/* Vertical Eval Bar */}
+              {gameMode !== 'pass_and_play' && (
+                <div className="py-2">
+                  <EvalBar score={evalScore} orientation={boardOrientation} />
+                </div>
+              )}
+              
+              <div className="relative shadow-2xl rounded-2xl overflow-hidden flex-grow w-full max-w-lg shrink-0">
+                {(chessVariant === '360_chess' || chessVariant === '4_player') && (
+                <div className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center border-4 border-dashed border-pink-500/50 rounded-2xl">
+                  <Sparkles className="w-12 h-12 text-pink-400 mb-4 animate-pulse" />
+                  <h3 className="text-xl font-bold tracking-tight text-white mb-2">
+                    {chessVariant === '360_chess' ? '360° Circular Chess' : '4-Player Chess'}
+                  </h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    This advanced variant requires a different geometry engine and board layout.
+                  </p>
+                  <button 
+                    onClick={() => setChessVariant('standard')}
+                    className="py-2 px-6 bg-pink-600 hover:bg-pink-500 rounded-xl text-xs uppercase font-extrabold shadow-md transform hover:scale-105 active:scale-95 transition-all text-white"
+                  >
+                    Return to Standard
+                  </button>
+                </div>
+              )}
               <ChessBoard
                 fen={fen}
                 onMove={handleUserMove}
@@ -953,10 +1116,15 @@ export default function App() {
                 kingInCheckSquare={kingInCheckSquare}
                 orientation={boardOrientation}
                 theme={boardTheme}
+                whitePieceTheme={whitePieceTheme}
+                blackPieceTheme={blackPieceTheme}
+                variant={chessVariant}
                 isInteractive={
                   gameMode === 'multiplayer'
                     ? (multiplayerRoomState?.status === 'active' && ((chessRef.current.turn() === 'w' && multiplayerRoomState?.players?.white?.clientId === clientId) || (chessRef.current.turn() === 'b' && multiplayerRoomState?.players?.black?.clientId === clientId)))
-                    : (gameMode === 'play' && !isBotThinking)
+                    : gameMode === 'pass_and_play'
+                      ? true
+                      : (gameMode === 'play' && !isBotThinking)
                 }
               />
 
@@ -974,6 +1142,7 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
 
             {/* BOTTOM HUD: Near Player Badge and Clock */}
             <div className="w-full max-w-lg flex items-center justify-between bg-[#171725]/60 px-4 py-2.5 rounded-xl border border-white/5 shadow-md">
@@ -1014,13 +1183,31 @@ export default function App() {
             {/* Top/Bottom Captured materials display */}
             <div className="w-full max-w-lg mt-1 grid grid-cols-2 gap-3">
               <div className="bg-[#171725]/30 p-2 rounded-xl border border-white/5">
-                <span className="text-[9px] uppercase tracking-wider font-extrabold text-gray-500 block mb-1">Captured by You</span>
-                <CapturedPieces capturedList={capturedB} color="b" advantageDiff={materialDiff * -1} />
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-gray-500 block mb-1">
+                  {gameMode === 'pass_and_play' ? 'Captured by White' : 'Captured by You'}
+                </span>
+                <CapturedPieces capturedList={capturedB} color="b" advantageDiff={materialDiff * -1} pieceTheme={blackPieceTheme} />
               </div>
               <div className="bg-[#171725]/30 p-2 rounded-xl border border-white/5">
-                <span className="text-[9px] uppercase tracking-wider font-extrabold text-gray-500 block mb-1">Captured by Bot</span>
-                <CapturedPieces capturedList={capturedW} color="w" advantageDiff={materialDiff} />
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-gray-500 block mb-1">
+                  {gameMode === 'pass_and_play' ? 'Captured by Black' : 'Captured by Bot'}
+                </span>
+                <CapturedPieces capturedList={capturedW} color="w" advantageDiff={materialDiff} pieceTheme={whitePieceTheme} />
               </div>
+            </div>
+
+            {/* AI Hint / Best Move Tech */}
+            <div className="w-full max-w-lg mt-1 bg-gradient-to-r from-blue-900/20 to-purple-900/20 py-2 border border-blue-500/10 rounded-xl flex items-center justify-center gap-2">
+              <span className="text-[10px] font-bold text-blue-400/80 uppercase tracking-tighter">
+                <Sparkles className="w-3 h-3 inline pb-0.5" /> Engine Telemetry
+              </span>
+              <span className="text-xs font-mono font-black text-gray-300 bg-[#171725] px-2 py-0.5 rounded-sm border border-white/5">
+                Eval: {evalScore > 900 ? '+M' : evalScore < -900 ? '-M' : `${evalScore > 0 ? '+' : ''}${evalScore.toFixed(1)}`}
+              </span>
+              <span className="text-[10px] text-gray-500 mx-1">|</span>
+              <span className="text-xs font-bold font-mono tracking-wide text-purple-300">
+                Best Move: <span className="bg-purple-500/20 px-1 rounded-sm">{bestMoveHint ? bestMoveHint.toUpperCase() : 'N/A'}</span>
+              </span>
             </div>
 
           </div>
@@ -1029,18 +1216,20 @@ export default function App() {
           <div className="lg:col-span-5 flex flex-col gap-5 w-full items-center">
             
             {/* Active Dialogue Persona Opponent Card */}
-            <OpponentCard
-              persona={activePersona}
-              gameStatus={gameStatus}
-              activeTurn={activeChess.turn() === 'w' ? 'white' : 'black'}
-              latestCommentary={latestCommentary}
-              isThinking={isBotThinking}
-              isAiThinkingComment={isAiThinkingComment}
-              memeReaction={memeReaction}
-            />
+            {gameMode !== 'pass_and_play' && (
+              <OpponentCard
+                persona={activePersona}
+                gameStatus={gameStatus}
+                activeTurn={activeChess.turn() === 'w' ? 'white' : 'black'}
+                latestCommentary={latestCommentary}
+                isThinking={isBotThinking}
+                isAiThinkingComment={isAiThinkingComment}
+                memeReaction={memeReaction}
+              />
+            )}
 
             {/* Responsive Workspace Switch widgets */}
-            {gameMode === 'play' && (
+            {(gameMode === 'play' || gameMode === 'pass_and_play') && (
               <GameControls
                 activePersona={activePersona}
                 onPersonaChange={(bot) => {
@@ -1062,13 +1251,21 @@ export default function App() {
                   setGameStatus('active');
                   setCoachSummary(null);
                   setAnalyzedMoves([]);
+                  scoredGameRef.current = false;
+                  setRatingChange(null);
                 }}
                 gameFormat={gameFormat}
                 onGameFormatChange={handleGameFormatChange}
+                chessVariant={chessVariant}
+                onChessVariantChange={setChessVariant}
                 gameMode={gameMode}
                 onGameModeChange={setGameMode}
                 boardTheme={boardTheme}
                 onBoardThemeChange={setBoardTheme}
+                whitePieceTheme={whitePieceTheme}
+                onWhitePieceThemeChange={setWhitePieceTheme}
+                blackPieceTheme={blackPieceTheme}
+                onBlackPieceThemeChange={setBlackPieceTheme}
                 playerColorSelection={playerColor}
                 onPlayerColorChange={setPlayerColor}
                 onUndo={handleUndoMove}
@@ -1079,6 +1276,12 @@ export default function App() {
                 onImportPgn={handleImportPgn}
                 currentFen={fen}
                 currentPgn={activeChess.pgn()}
+              />
+            )}
+
+            {gameMode === 'bluetooth' && (
+              <BluetoothConnectionPanel
+                onBack={() => setGameMode('play')}
               />
             )}
 
